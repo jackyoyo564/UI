@@ -6,6 +6,8 @@ import os
 import sqlite3
 from datetime import datetime
 import requests
+
+API_BASE_URL = "http://127.0.0.1:5000"
 from PyQt5.QtGui import QPixmap
 from io import BytesIO
 
@@ -223,7 +225,7 @@ class ImageDeleteDialog(QDialog):
         for idx, img in enumerate(images):
             img_label = QLabel()
             try:
-                img_resp = requests.get(f"http://127.0.0.1:5000{img['image_path']}")
+                img_resp = requests.get(f"{API_BASE_URL}{img['image_path']}")
                 if img_resp.status_code == 200:
                     pixmap = QPixmap()
                     pixmap.loadFromData(img_resp.content)
@@ -380,7 +382,7 @@ class RobotStatusWindow(QMainWindow):
             robot_id = f"robot{uuid.uuid4().hex[:12]}"
             add_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             try:
-                resp = requests.post('http://127.0.0.1:5000/api/add_robot', json={
+                resp = requests.post(f'{API_BASE_URL}/api/add_robot', json={
                     "robot_id": robot_id,
                     "name": name.strip(),
                     "add_date": add_date
@@ -405,7 +407,7 @@ class RobotStatusWindow(QMainWindow):
             QMessageBox.warning(self, "錯誤", "找不到該機器人資料")
             return
         try:
-            resp = requests.post('http://127.0.0.1:5000/api/delete_robot', json={"robot_id": robot_id})
+            resp = requests.post(f'{API_BASE_URL}/api/delete_robot', json={"robot_id": robot_id})
             data = resp.json()
             if data.get("success"):
                 self.load_robots()
@@ -443,7 +445,7 @@ class RobotStatusWindow(QMainWindow):
         new_name, ok = QInputDialog.getText(self, "更改名稱", "請輸入新名稱：", text=old_name)
         if ok and new_name.strip() and new_name != old_name:
             try:
-                resp = requests.post('http://127.0.0.1:5000/api/update_robot', json={
+                resp = requests.post(f'{API_BASE_URL}/api/update_robot', json={
                     "robot_id": robot_id,
                     "name": new_name.strip()
                 })
@@ -462,7 +464,7 @@ class RobotStatusWindow(QMainWindow):
             QMessageBox.warning(self, "錯誤", "找不到該機器人資料")
             return
         try:
-            resp = requests.get(f'http://127.0.0.1:5000/api/robot/{robot_id}')
+            resp = requests.get(f'{API_BASE_URL}/api/robot/{robot_id}')
             data = resp.json()
             if data.get("success"):
                 robot_data = data.get('robot', {})
@@ -480,7 +482,7 @@ class RobotStatusWindow(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             new_name, new_repair, new_damage = dialog.get_values()
             try:
-                resp = requests.post('http://127.0.0.1:5000/api/update_robot', json={
+                resp = requests.post(f'{API_BASE_URL}/api/update_robot', json={
                     "robot_id": robot_id,
                     "name": new_name,
                     "repair_count": new_repair,
@@ -496,7 +498,7 @@ class RobotStatusWindow(QMainWindow):
 
     def get_robot_id_by_name(self, name):
         try:
-            resp = requests.get('http://127.0.0.1:5000/api/robots')
+            resp = requests.get(f'{API_BASE_URL}/api/robots')
             data = resp.json()
             robots = data.get('robots', [])
             for robot in robots:
@@ -532,7 +534,7 @@ class RobotStatusWindow(QMainWindow):
     def load_robots(self, select_name=None):
         """從 API 載入機器人清單"""
         try:
-            resp = requests.get('http://127.0.0.1:5000/api/robots')
+            resp = requests.get(f'{API_BASE_URL}/api/robots')
             data = resp.json()
             robots = data.get('robots', [])
             self.robot_list.clear()
@@ -556,7 +558,7 @@ class RobotStatusWindow(QMainWindow):
             return
         name = current.text().strip()
         try:
-            resp = requests.get('http://127.0.0.1:5000/api/robots')
+            resp = requests.get(f'{API_BASE_URL}/api/robots')
             data = resp.json()
             robots = data.get('robots', [])
             robot = next((r for r in robots if r['name'] == name), None)
@@ -588,7 +590,7 @@ class RobotStatusWindow(QMainWindow):
     def show_all_robot_images(self, robot_id):
         self.clear_images_area()
         try:
-            resp = requests.get(f'http://127.0.0.1:5000/api/robot_images/{robot_id}')
+            resp = requests.get(f'{API_BASE_URL}/api/robot_images/{robot_id}')
             data = resp.json()
             images = data.get('images', [])
             for img in images:
@@ -596,7 +598,7 @@ class RobotStatusWindow(QMainWindow):
                 img_label.setFixedSize(120, 120)
                 img_label.setScaledContents(True)
                 try:
-                    img_resp = requests.get(f"http://127.0.0.1:5000{img['image_path']}")
+                    img_resp = requests.get(f"{API_BASE_URL}{img['image_path']}")
                     if img_resp.status_code == 200:
                         pixmap = QPixmap()
                         pixmap.loadFromData(img_resp.content)
@@ -657,7 +659,7 @@ class RobotStatusWindow(QMainWindow):
                 with open(file_path, 'rb') as f:
                     files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
                     data = {'robot_id': robot_id}
-                    resp = requests.post('http://127.0.0.1:5000/api/upload_robot_image', files=files, data=data)
+                    resp = requests.post(f'{API_BASE_URL}/api/upload_robot_image', files=files, data=data)
                     result = resp.json()
                     if result.get('success'):
                         self.update_robot_details(current, None)
@@ -684,7 +686,7 @@ class RobotStatusWindow(QMainWindow):
         if not robot_id:
             return
         try:
-            resp = requests.post('http://127.0.0.1:5000/api/update_robot', json={
+            resp = requests.post(f'{API_BASE_URL}/api/update_robot', json={
                 "robot_id": robot_id,
                 "image_path": None
             })
@@ -707,7 +709,7 @@ class RobotStatusWindow(QMainWindow):
             QMessageBox.warning(self, "錯誤", "找不到該機器人資料")
             return
         try:
-            resp = requests.get(f'http://127.0.0.1:5000/api/robot_images/{robot_id}')
+            resp = requests.get(f'{API_BASE_URL}/api/robot_images/{robot_id}')
             data = resp.json()
             images = data.get('images', [])
             if not images:
@@ -717,7 +719,7 @@ class RobotStatusWindow(QMainWindow):
             if dialog.exec_() == QDialog.Accepted:
                 ids = dialog.get_selected_ids()
                 if ids:
-                    del_resp = requests.post('http://127.0.0.1:5000/api/delete_robot_images', json={"ids": ids})
+                    del_resp = requests.post(f'{API_BASE_URL}/api/delete_robot_images', json={"ids": ids})
                     del_data = del_resp.json()
                     if del_data.get('success'):
                         self.update_robot_details(current, None)
@@ -730,7 +732,7 @@ class RobotStatusWindow(QMainWindow):
         reply = QMessageBox.question(self, "確認刪除", "確定要刪除此圖片嗎？", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                del_resp = requests.post('http://127.0.0.1:5000/api/delete_robot_images', json={"ids": [img_id]})
+                del_resp = requests.post(f'{API_BASE_URL}/api/delete_robot_images', json={"ids": [img_id]})
                 del_data = del_resp.json()
                 if del_data.get('success'):
                     current = self.robot_list.currentItem()

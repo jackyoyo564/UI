@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox, QApplication
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from user_manager import UserManager
@@ -6,10 +6,13 @@ import json
 import os
 import requests
 
+API_BASE_URL = "http://127.0.0.1:5000"
+
 class LoginWindow(QMainWindow):
-    def __init__(self, app):
-        super().__init__()
-        self.app = app
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # 需要 app 時這樣取得
+        self.app = QApplication.instance()
         # self.user_manager = UserManager()  # 不再用本地 user_manager
         self.setWindowTitle("登入系統")
         self.should_quit = True
@@ -65,7 +68,7 @@ class LoginWindow(QMainWindow):
             account = self.account_input.text()
             password = self.password_input.text()
             # 呼叫 API 登入
-            resp = requests.post('http://127.0.0.1:5000/api/login', json={"username": account, "password": password})
+            resp = requests.post(f"{API_BASE_URL}/api/login", json={"username": account, "password": password})
             data = resp.json()
             if data.get("success"):
                 role = data.get("role")
@@ -74,7 +77,7 @@ class LoginWindow(QMainWindow):
                 self.should_quit = False
                 self.close()
                 from main_window import MainWindow
-                self.main_window = MainWindow(role, self.app)
+                self.main_window = MainWindow(role)
                 self.main_window.show()
                 from PyQt5.QtWidgets import QApplication
                 QApplication.processEvents()

@@ -1,10 +1,11 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QDialog, QFormLayout, QLineEdit, QMessageBox, QTableWidget, QTableWidgetItem, QScrollArea, QStackedWidget, QRadioButton, QHBoxLayout, QHeaderView
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QDialog, QFormLayout, QLineEdit, QMessageBox, QTableWidget, QTableWidgetItem, QScrollArea, QStackedWidget, QRadioButton, QHBoxLayout, QHeaderView, QApplication
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from user_manager import UserManager
 import json
 import os
 from robot_status_window import RobotStatusWindow
+from task_manager_window import TaskManagerWindow
 import requests
 import csv
 
@@ -284,10 +285,9 @@ class UserManagementDialog(QDialog):
         event.accept()
 
 class MainWindow(QMainWindow):
-    def __init__(self, role, app):
+    def __init__(self, role):
         super().__init__()
         self.role = role
-        self.app = app
         self.is_logging_out = False  # 添加登出標誌
         self.setWindowTitle("主畫面")
         self.load_window_size()
@@ -331,11 +331,15 @@ class MainWindow(QMainWindow):
         layout.setAlignment(Qt.AlignCenter)
 
     def handle_task_management(self):
-        QMessageBox.information(self, "提示", "任務管理功能尚未實現")
+        try:
+            self.task_manager_window = TaskManagerWindow()
+            self.task_manager_window.show()
+        except Exception as e:
+            QMessageBox.critical(self, "錯誤", f"無法開啟任務管理介面：{str(e)}")
 
     def handle_status_view(self):
         try:
-            self.status_window = RobotStatusWindow(self.app, self)
+            self.status_window = RobotStatusWindow(self)
             self.status_window.show()
         except Exception as e:
             QMessageBox.critical(self, "錯誤", f"無法開啟機器人狀態檢視介面：{str(e)}")
@@ -354,9 +358,8 @@ class MainWindow(QMainWindow):
         self.is_logging_out = True  # 設置登出標誌
         self.close()  # 觸發 closeEvent
         try:
-            self.login_window = LoginWindow(self.app)
+            self.login_window = LoginWindow()
             self.login_window.show()
-            from PyQt5.QtWidgets import QApplication
             QApplication.processEvents()
             print("已顯示登入視窗")
         except Exception as e:
@@ -374,6 +377,7 @@ class MainWindow(QMainWindow):
             self.resize(800, 600)
 
     def closeEvent(self, event):
+        app = QApplication.instance()
         if self.is_logging_out:
             # 登出時直接關閉，不顯示確認對話框
             sizes = {}
@@ -410,7 +414,8 @@ class MainWindow(QMainWindow):
                 with open("window_sizes.json", "w") as f:
                     json.dump(sizes, f)
                 print("關閉主視窗，終止應用程式")
-                self.app.quit()
+                if app:
+                    app.quit()
                 event.accept()
             else:
                 print("取消關閉主視窗")
