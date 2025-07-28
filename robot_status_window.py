@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QLabel, QSplitter, QFrame, QMessageBox, QPushButton, QInputDialog, QMenu, QDialog, QDialogButtonBox, QRadioButton, QLineEdit, QFormLayout, QSpinBox, QComboBox, QFileDialog, QScrollArea, QWidget, QGridLayout, QCheckBox
+from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QLabel, QSplitter, QFrame, QMessageBox, QPushButton, QInputDialog, QMenu, QDialog, QDialogButtonBox, QRadioButton, QLineEdit, QFormLayout, QSpinBox, QComboBox, QFileDialog, QScrollArea, QWidget, QGridLayout, QCheckBox, QStackedLayout, QComboBox as QComboBoxWidget
 from PyQt5.QtGui import QFont, QPixmap, QPainter
 from PyQt5.QtCore import Qt, QPoint, QSize, QRect
 import json
@@ -315,11 +315,48 @@ class RobotStatusWindow(QMainWindow):
         self.center_panel = QFrame()
         self.center_panel.setFrameShape(QFrame.Box)
         center_layout = QVBoxLayout(self.center_panel)
-        self.status_label = QLabel("機器人狀態（待外部內容填充）", self)
-        self.status_label.setFont(font)
-        self.status_label.setAlignment(Qt.AlignCenter)
-        center_layout.addWidget(self.status_label)
-        center_layout.addStretch()
+        center_layout.setContentsMargins(5, 5, 5, 5)
+        center_layout.setSpacing(5)
+
+        # ====== 新增：右上角顯示模式選擇 ======
+        top_row = QHBoxLayout()
+        self.mode_combo = QComboBoxWidget()
+        self.mode_combo.addItems(["單一畫面", "雙畫面"])
+        self.mode_combo.setFixedWidth(100)
+        self.mode_combo.setCurrentIndex(0)
+        top_row.addStretch()
+        top_row.addWidget(self.mode_combo)
+        center_layout.addLayout(top_row)
+
+        # ====== 新增：上方切換按鈕區 ======
+        btn_row = QHBoxLayout()
+        self.camera_btn = QPushButton("camera")
+        self.lidar_btn = QPushButton("lidar")
+        self.camera_btn.setCheckable(True)
+        self.lidar_btn.setCheckable(True)
+        self.camera_btn.setChecked(True)
+        self.lidar_btn.setChecked(False)
+        btn_row.addWidget(self.camera_btn)
+        btn_row.addWidget(self.lidar_btn)
+        btn_row.addStretch()
+        center_layout.addLayout(btn_row)
+
+        # ====== 新增：內容區 ======
+        self.center_content = QWidget()
+        self.center_content_layout = QVBoxLayout(self.center_content)
+        self.center_content_layout.setContentsMargins(0, 0, 0, 0)
+        self.center_content_layout.setSpacing(5)
+        # camera畫面
+        self.camera_view = QLabel("這裡是camera畫面示意", self)
+        self.camera_view.setAlignment(Qt.AlignCenter)
+        self.camera_view.setStyleSheet("font-size: 22px; color: #2a5d9f; border: 1px solid #aaa; background: #eaf3ff;")
+        # lidar畫面
+        self.lidar_view = QLabel("這裡是LIDAR畫面示意", self)
+        self.lidar_view.setAlignment(Qt.AlignCenter)
+        self.lidar_view.setStyleSheet("font-size: 22px; color: #9f2a2a; border: 1px solid #aaa; background: #fff3ea;")
+        self.center_content_layout.addWidget(self.camera_view)
+        self.center_content_layout.addWidget(self.lidar_view)
+        center_layout.addWidget(self.center_content, stretch=1)
         splitter.addWidget(self.center_panel)
 
         # 右側面板：機器人詳細資訊（1/5，帶框線）
@@ -373,6 +410,12 @@ class RobotStatusWindow(QMainWindow):
         self.init_db()
         self.load_robots()
         self.robot_image.mousePressEvent = self.show_image_preview
+
+        # 切換按鈕事件
+        self.camera_btn.clicked.connect(lambda: self.switch_center_view(0))
+        self.lidar_btn.clicked.connect(lambda: self.switch_center_view(1))
+        self.mode_combo.currentIndexChanged.connect(self.update_center_content_mode)
+        self.update_center_content_mode()
 
     # 新增機器人
     def add_robot(self):
@@ -769,6 +812,32 @@ class RobotStatusWindow(QMainWindow):
         if self.robot_image.pixmap():
             dialog = ImagePreviewDialog(self.robot_image.pixmap(), self)
             dialog.exec_()
+
+    def switch_center_view(self, idx):
+        self.camera_btn.setChecked(idx == 0)
+        self.lidar_btn.setChecked(idx == 1)
+        self._current_view_idx = idx
+        self.update_center_content_mode()
+
+    def update_center_content_mode(self):
+        mode = self.mode_combo.currentIndex()
+        # 0: 單一畫面，1: 雙畫面
+        if mode == 0:
+            # 只顯示一個畫面，填滿
+            if getattr(self, '_current_view_idx', 0) == 0:
+                self.camera_view.setVisible(True)
+                self.lidar_view.setVisible(False)
+            else:
+                self.camera_view.setVisible(False)
+                self.lidar_view.setVisible(True)
+            self.center_content_layout.setStretch(0, 1)
+            self.center_content_layout.setStretch(1, 0)
+        else:
+            # 雙畫面，上下各半
+            self.camera_view.setVisible(True)
+            self.lidar_view.setVisible(True)
+            self.center_content_layout.setStretch(0, 1)
+            self.center_content_layout.setStretch(1, 1)
 
     def load_window_size(self):
         """載入視窗大小"""

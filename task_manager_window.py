@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QLabel, QPushButton, QSplitter, QMessageBox, QComboBox, QLineEdit, QDialog, QDialogButtonBox, QProgressBar, QListWidgetItem, QCheckBox, QInputDialog, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QAbstractItemView
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush, QFont
 import requests
 import threading
@@ -16,6 +16,7 @@ TASK_LIST = [
 ]
 
 class TaskManagerWindow(QMainWindow):
+    task_completed = pyqtSignal(str)  # 新增 signal
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("任務管理")
@@ -134,6 +135,7 @@ class TaskManagerWindow(QMainWindow):
         main_layout.addWidget(splitter)
 
         self.load_robots()
+        self.task_completed.connect(self._force_task_completion)
 
     def load_robots(self):
         try:
@@ -211,19 +213,29 @@ class TaskManagerWindow(QMainWindow):
         if not tasks_to_assign:
             QMessageBox.warning(self, "提示", "請至少選擇一個任務或輸入自訂任務")
             return
+        
         first_robot_id = None
         for item in selected_items:
             robot_id = item.data(Qt.UserRole)
             if first_robot_id is None:
                 first_robot_id = robot_id
+            
+            # 確保機器人的佇列和任務映射已初始化
+            self.robot_all_tasks_map.setdefault(robot_id, [])
+            self.robot_task_queue_map.setdefault(robot_id, [])
+            self.robot_history_map.setdefault(robot_id, [])
+            self.robot_completed_tasks_map.setdefault(robot_id, [])
+            
+            # 將新任務加入佇列（不取消現有任務）
             for task in tasks_to_assign:
-                self.robot_all_tasks_map.setdefault(robot_id, [])
                 self.robot_all_tasks_map[robot_id].append(task)
-                self.robot_task_queue_map.setdefault(robot_id, [])
                 self.robot_task_queue_map[robot_id].append(task)
                 self.robot_history_map[robot_id].append(f"指派任務：{task}")
-            if not self.robot_task_map[robot_id]:
+            
+            # 如果機器人目前沒有執行任務，立即開始第一個任務
+            if not self.robot_task_map.get(robot_id):
                 self.start_next_task(robot_id)
+        
         QMessageBox.information(self, "派發成功", f"已將任務派發給選中機器人")
         # 自動選中第一台
         if first_robot_id:
@@ -243,24 +255,34 @@ class TaskManagerWindow(QMainWindow):
 
     def start_next_task(self, robot_id):
         queue = self.robot_task_queue_map.get(robot_id, [])
+        print(f"DEBUG: start_next_task for {robot_id}, queue length: {len(queue)}")  # 除錯用
+        
         # 只要佇列還有任務就繼續執行
         if queue:
             next_task = queue.pop(0)
+            print(f"DEBUG: Starting task '{next_task}' for {robot_id}")  # 除錯用
+            
+            # 立即更新佇列，避免 race condition
+            self.robot_task_queue_map[robot_id] = queue
             self.robot_task_map[robot_id] = next_task
             self.robot_status_map[robot_id] = "工作中"
             self.robot_progress_map[robot_id] = 0
             self.robot_paused_map[robot_id] = False
             self.robot_cancel_event[robot_id].clear()
             self.robot_pause_event[robot_id].clear()
+            
+            # 立即更新 UI
+            QTimer.singleShot(0, self.update_robot_status)
             self.simulate_progress(robot_id)
         else:
+            print(f"DEBUG: No more tasks in queue for {robot_id}")  # 除錯用
             self.robot_task_map[robot_id] = None
             self.robot_status_map[robot_id] = "待機中"
             self.robot_progress_map[robot_id] = 0
             self.robot_paused_map[robot_id] = False
             self.robot_cancel_event[robot_id].clear()
             self.robot_pause_event[robot_id].clear()
-            self.update_robot_status()
+            QTimer.singleShot(0, self.update_robot_status)
 
     def simulate_progress(self, robot_id):
         def run():
@@ -276,22 +298,34 @@ class TaskManagerWindow(QMainWindow):
                 if self.robot_progress_map[robot_id] > 100:
                     self.robot_progress_map[robot_id] = 100
                 QTimer.singleShot(0, self.update_robot_status)
-                time.sleep(0.15)  # 0.15秒增加1%，15秒到100%
-            # 執行完一個任務後，無論如何都要啟動下一個
+                time.sleep(0.08)  # 0.08秒增加1%，8秒到100%
+            
+            # 任務完成處理
             if self.robot_task_map[robot_id] and not self.robot_cancel_event[robot_id].is_set():
-                self.robot_status_map[robot_id] = "待機中"
-                self.robot_history_map[robot_id].append(f"完成任務：{self.robot_task_map[robot_id]}")
-                # 完成時加入 completed_tasks_map
+                completed_task = self.robot_task_map[robot_id]
+                print(f"DEBUG: Task '{completed_task}' completed for {robot_id}")  # 除錯用
+                self.robot_history_map[robot_id].append(f"完成任務：{completed_task}")
                 self.robot_completed_tasks_map.setdefault(robot_id, [])
-                self.robot_completed_tasks_map[robot_id].append(self.robot_task_map[robot_id])
+                self.robot_completed_tasks_map[robot_id].append(completed_task)
                 self.robot_task_map[robot_id] = None
                 self.robot_progress_map[robot_id] = 0
-                QTimer.singleShot(0, self.update_robot_status)
-            # 無論如何都要啟動下一個
-            QTimer.singleShot(0, lambda: self.start_next_task(robot_id))
+                # 用 signal 通知主執行緒
+                self.task_completed.emit(robot_id)
+            else:
+                # 如果任務被取消，也要嘗試啟動下一個
+                print(f"DEBUG: Task cancelled for {robot_id}, trying next task")  # 除錯用
+                self.task_completed.emit(robot_id)
         t = threading.Thread(target=run, daemon=True)
         t.start()
         self.robot_thread_map[robot_id] = t
+
+    def _force_task_completion(self, robot_id):
+        """強制處理任務完成並啟動下一個任務"""
+        print(f"DEBUG: _force_task_completion for {robot_id}")  # 除錯用
+        # 立即更新 UI
+        self.update_robot_status()
+        # 立即啟動下一個任務
+        QTimer.singleShot(100, lambda: self.start_next_task(robot_id))
 
     def cancel_task(self):
         selected_items = self.robot_list.selectedItems()
@@ -337,15 +371,18 @@ class TaskManagerWindow(QMainWindow):
             self.todo_list.clear()
             self.history_list.clear()
             return
+        
         # 批次選取時顯示提示，進度條等顯示最後一台
         if len(selected_items) > 1:
             self.status_panel.setText(f"已選取 {len(selected_items)} 台機器人，可批次操作\n（下方顯示最後選取的機器人狀態）")
+        
         current = selected_items[-1]
         robot_id = current.data(Qt.UserRole)
         status = self.robot_status_map.get(robot_id, "待機中")
         task = self.robot_task_map.get(robot_id)
         progress = self.robot_progress_map.get(robot_id, 0)
         paused = self.robot_paused_map.get(robot_id, False)
+        
         text = f"機器人ID：{robot_id}\n狀態：{status}\n"
         if task:
             text += f"目前任務：{task}\n進度：{progress}%\n"
@@ -355,11 +392,13 @@ class TaskManagerWindow(QMainWindow):
             text += "目前任務：無\n"
         text += "電量：100%\n位置：A點\n"  # 假資料
         self.status_panel.setText(self.status_panel.text() + "\n" + text if len(selected_items) > 1 else text)
+        
         # 新增：顯示目前執行任務名稱
         if task:
             self.current_task_label.setText(f"目前執行任務：{task}")
         else:
             self.current_task_label.setText("")
+        
         if task:
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(progress)
@@ -372,6 +411,7 @@ class TaskManagerWindow(QMainWindow):
             self.progress_bar.setVisible(False)
             self.cancel_btn.setVisible(False)
             self.pause_btn.setVisible(False)
+        
         # 顯示總任務完成度
         all_tasks = self.robot_all_tasks_map.get(robot_id, [])
         completed_tasks = self.robot_completed_tasks_map.get(robot_id, [])
@@ -379,12 +419,40 @@ class TaskManagerWindow(QMainWindow):
             percent = int(len(completed_tasks) / len(all_tasks) * 100)
             self.total_progress_bar.setVisible(True)
             self.total_progress_bar.setValue(percent)
+            print(f"DEBUG: Total completion for {robot_id}: {len(completed_tasks)}/{len(all_tasks)} = {percent}%")  # 除錯用
         else:
             self.total_progress_bar.setVisible(False)
+        
         # 顯示待辦任務列表
         self.todo_list.clear()
-        for t in self.robot_task_queue_map.get(robot_id, []):
+        queue = self.robot_task_queue_map.get(robot_id, [])
+        print(f"DEBUG: Todo list for {robot_id}: {queue}")  # 除錯用
+        for t in queue:
             self.todo_list.addItem(t)
+        
         self.history_list.clear()
         for h in self.robot_history_map.get(robot_id, []):
-            self.history_list.addItem(h) 
+            self.history_list.addItem(h)
+        
+        # 更新左側機器人列表的狀態顯示
+        self._update_robot_list_status()
+
+    def _update_robot_list_status(self):
+        """更新左側機器人列表的狀態顯示"""
+        for i in range(self.robot_list.count()):
+            item = self.robot_list.item(i)
+            robot_id = item.data(Qt.UserRole)
+            status = self.robot_status_map.get(robot_id, "待機中")
+            
+            # 更新顯示文字
+            name = item.text().split('（')[0]  # 取得機器人名稱
+            display_text = f"{name}（{status}）"
+            item.setText(display_text)
+            
+            # 更新顏色
+            if status == "工作中":
+                item.setForeground(QBrush(QColor("orange")))
+            elif status == "離線":
+                item.setForeground(QBrush(QColor("gray")))
+            else:
+                item.setForeground(QBrush(QColor("green"))) 
